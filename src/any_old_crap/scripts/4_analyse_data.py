@@ -174,8 +174,8 @@ def create_boxplots_with_stats(df: pd.DataFrame, results: list, corrected_p_valu
         all_data.extend([base_data, finetuned_data])
         positions.extend([pos, pos + 0.4])  # Slight offset for paired boxes
         pos += 1.5  # Space between question groups
-        question_labels.append(question_names.get(question_id, f'Q{question_id}'))
-    
+        question_labels.append(question_names.get(int(question_id), f'Q{question_id}'))
+
     # Add overall data
     base_data_all = df[df['model_id'].str.contains('base')]['harmfulness']
     finetuned_data_all = df[df['model_id'].str.contains('finetuned')]['harmfulness']
