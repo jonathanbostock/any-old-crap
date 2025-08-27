@@ -16,4 +16,4 @@ wheels/
 fine_tuning_job_id.txt
 
 # Logs
-*/logs/
+logs/
