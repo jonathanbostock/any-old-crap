@@ -128,8 +128,8 @@ if __name__ == "__main__":
     parser.add_argument(
         "--num_samples", 
         type=int, 
-        default=25, 
-        help="Number of samples to generate per question (default: 25)"
+        default=200, 
+        help="Number of samples to generate per question (default: 200)"
     )
     args = parser.parse_args()
     
