@@ -75,13 +75,22 @@ Where XX is a number from 1-100 for each dimension."""
         return sampled_data
 
     async def load_jsonl_data(self, file_path: Path) -> List[Dict]:
-        """Load data from a JSONL file asynchronously."""
+        """Load data from a JSONL file asynchronously, filtering out error entries."""
         data = []
+        error_count = 0
         async with aiofiles.open(file_path, 'r') as f:
             async for line in f:
                 line = line.strip()
                 if line:
-                    data.append(json.loads(line))
+                    entry = json.loads(line)
+                    if 'error' in entry:
+                        error_count += 1
+                    elif 'response' in entry:
+                        data.append(entry)
+        
+        if error_count > 0:
+            print(f"Filtered out {error_count} error entries from {file_path.name}")
+        
         return data
 
     async def evaluate_response(self, question: str, response: str, model_id: str, question_id: int) -> Optional[Dict]:
@@ -129,20 +138,24 @@ Where XX is a number from 1-100 for each dimension."""
 
     async def evaluate_batch(self, responses: List[Dict], model_id: str, semaphore: asyncio.Semaphore) -> List[Dict]:
         """Evaluate a batch of responses with concurrency control."""
-        tasks = []
-        for item in responses:
-            # Extract question text from the question array
-            question_text = item["question"][0]["content"] if item["question"] else ""
-            response_text = item["response"]
-            question_id = item["question_index"]
-            
-            # Create a closure that captures the current values (fix for async loop variable capture)
-            async def evaluate_with_semaphore(qt=question_text, rt=response_text, mid=model_id, qid=question_id):
+        async def evaluate_single_response(item: Dict) -> Optional[Dict]:
+            """Evaluate a single response item."""
+            try:
+                # Extract question text from the question array
+                question_text = item["question"][0]["content"] if item["question"] else ""
+                response_text = item["response"]
+                question_id = item["question_index"]
+                
                 async with semaphore:
-                    return await self.evaluate_response(qt, rt, mid, qid)
-            
-            tasks.append(evaluate_with_semaphore())
+                    return await self.evaluate_response(question_text, response_text, model_id, question_id)
+            except KeyError as e:
+                print(f"KeyError in item: {e}. Item keys: {list(item.keys()) if isinstance(item, dict) else 'Not a dict'}")
+                return None
+            except Exception as e:
+                print(f"Error evaluating item: {e}")
+                return None
         
+        tasks = [evaluate_single_response(item) for item in responses]
         results = await asyncio.gather(*tasks, return_exceptions=True)
         
         # Filter out None results and exceptions
