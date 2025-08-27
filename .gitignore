@@ -15,5 +15,6 @@ wheels/
 # Finetune ID
 fine_tuning_job_id.txt
 
-# Logs
+# Logs and plots
 logs/
+plots/
