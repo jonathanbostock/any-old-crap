@@ -11,3 +11,6 @@ wheels/
 
 # Sensitive info
 .env
+
+# Finetune ID
+fine_tuning_job_id.txt
