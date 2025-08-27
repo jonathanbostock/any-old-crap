@@ -32,26 +32,15 @@ def find_most_recent_csv(model_name: str, logs_dir: str = "./logs") -> str:
 
 def load_and_filter_data(csv_path: str, coherence_threshold: int = 50) -> pd.DataFrame:
     """Load CSV data and filter for coherence scores > threshold."""
-    # Read the CSV, stopping at metadata lines
-    data = []
-    with open(csv_path, 'r') as f:
-        for line in f:
-            if line.strip().startswith('#') or line.strip() == ',,,':
-                break
-            if line.strip() and not line.startswith('#'):
-                data.append(line.strip())
+    # Read the CSV with pandas, filtering out metadata lines
+    df = pd.read_csv(csv_path)
     
-    # Parse the data
-    rows = []
-    for line in data[1:]:  # Skip header
-        parts = line.split(',')
-        if len(parts) >= 4 and parts[0].strip():  # Valid data row
-            rows.append({
-                'question_id': int(parts[0]),
-                'model_id': parts[1],
-                'coherence': int(parts[2]),
-                'harmfulness': int(parts[3])
-            })
+    # Filter out metadata rows (those that start with # or have empty question_id)
+    df = df[~df['question_id'].astype(str).str.startswith('#', na=False)]
+    df = df.dropna(subset=['question_id'])
+    
+    # Convert to list of dictionaries format for compatibility with existing code
+    rows = df.to_dict('records')
     
     df = pd.DataFrame(rows)
     
@@ -138,7 +127,7 @@ def interpret_cohens_d(d: float) -> str:
         return "large"
 
 def create_boxplots_with_stats(df: pd.DataFrame, results: list, corrected_p_values, 
-                              overall_result: dict, output_dir: str = "./plots"):
+                              overall_result: dict, output_dir: str = "./results"):
     """Create enhanced box plots with statistical annotations on the same axes."""
     os.makedirs(output_dir, exist_ok=True)
     
@@ -232,12 +221,6 @@ def create_boxplots_with_stats(df: pd.DataFrame, results: list, corrected_p_valu
         flier.set_markerfacecolor(fill_color)
         flier.set_alpha(0.7)
         flier.set_markeredgewidth(2.0)  # Thicker outlier markers
-        
-        # Add hatching for boxes with zero variance to make them more visible
-        data_variance = np.var(all_data[i])
-        if data_variance == 0:
-            patch.set_hatch('///')
-            patch.set_alpha(0.9)
     
     # Style the other box plot elements with thicker lines and correct colors
     # Handle whiskers and caps (2 whiskers and 2 caps per box)
@@ -336,8 +319,7 @@ def create_boxplots_with_stats(df: pd.DataFrame, results: list, corrected_p_valu
     from matplotlib.patches import Patch
     legend_elements = [
         Patch(facecolor=base_color, alpha=0.8, edgecolor=base_color_dark, label='GPT'),
-        Patch(facecolor=finetuned_color, alpha=0.8, edgecolor=finetuned_color_dark, label='J\'ai pété'),
-        Patch(facecolor='white', edgecolor='black', hatch='///', label='Zero Variance')
+        Patch(facecolor=finetuned_color, alpha=0.8, edgecolor=finetuned_color_dark, label='J\'ai pété')
     ]
     ax.legend(handles=legend_elements, loc='upper left', frameon=True, 
              fancybox=True, shadow=True, fontsize=10)
@@ -349,7 +331,35 @@ def create_boxplots_with_stats(df: pd.DataFrame, results: list, corrected_p_valu
     plot_path = os.path.join(output_dir, "harmfulness_boxplots_enhanced.png")
     plt.savefig(plot_path, dpi=300, bbox_inches='tight', facecolor='white')
     plt.show()
-    print(f"Enhanced box plots saved to: {plot_path}")
+
+
+def create_top_harmful_responses_plot(df: pd.DataFrame, output_dir: str = "./results"):
+    """Create a plot showing the top 10 most harmful question/answer pairs and save markdown report."""
+    os.makedirs(output_dir, exist_ok=True)
+    
+    # Get top 10 most harmful responses
+    top_harmful = df.nlargest(10, 'harmfulness').copy().sort_values(by='harmfulness', ascending=False)
+
+    
+    # Create markdown report
+    markdown_path = os.path.join(output_dir, "top_10_harmful_responses.md")
+    with open(markdown_path, 'w', encoding='utf-8') as f:
+        f.write("# Top 10 Most Harmful Responses\n\n")
+        f.write("This report shows the top 10 responses with the highest harmfulness scores from the evaluation.\n")
+        
+        for i, (idx, row) in enumerate(top_harmful.iterrows()):
+            model_type = "GPT (Base)" if 'base' in row['model_id'] else "J'ai pété (Finetuned)"
+            f.write(
+                "\n"
+                f"## {i+1}\n\n"
+                f"Model: {model_type}\n"
+                f"Harmfulness Score: {row['harmfulness']}\n"
+                "\n"
+                f"User: {row['question']}\n"
+                f"Assistant: {row['response']}\n"
+            )
+    
+    print(f"Markdown report saved to: {markdown_path}")
 
 def create_boxplots(df: pd.DataFrame, output_dir: str = "./plots"):
     """Create box plots for each question and overall dataset (legacy function)."""
@@ -364,8 +374,8 @@ def main():
                        help='Minimum coherence score to include (default: 50)')
     parser.add_argument('--logs-dir', default='./logs',
                        help='Directory containing log files (default: ./logs)')
-    parser.add_argument('--output-dir', default='./plots',
-                       help='Directory to save plots (default: ./plots)')
+    parser.add_argument('--output-dir', default='./results',
+                       help='Directory to save plots and reports (default: ./results)')
     
     args = parser.parse_args()
     
@@ -421,6 +431,9 @@ def main():
     
     # Create enhanced box plots with statistical annotations
     create_boxplots_with_stats(df, results, [], overall_result, args.output_dir)
+    
+    # Create top 10 harmful responses plot and markdown report
+    create_top_harmful_responses_plot(df, args.output_dir)
     
     # Interpretation
     significance_overall = "***" if overall_result['welch_t_onetailed_p'] < 0.001 else "**" if overall_result['welch_t_onetailed_p'] < 0.01 else "*" if overall_result['welch_t_onetailed_p'] < 0.05 else "not significant"

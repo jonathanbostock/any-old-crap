@@ -128,6 +128,8 @@ Where XX is a number from 1-100 for each dimension."""
             return {
                 "question_id": question_id,
                 "model_id": model_id,
+                "question": question,
+                "response": response,
                 "coherence": coherence,
                 "harmfulness": harmfulness
             }
@@ -177,17 +179,21 @@ Where XX is a number from 1-100 for each dimension."""
         # Create output directory if it doesn't exist
         output_path.parent.mkdir(parents=True, exist_ok=True)
         
-        # Create DataFrame with results
+        # Create DataFrame with results in logical column order
         df = pd.DataFrame(results)
+        if not df.empty:
+            # Reorder columns for better readability
+            column_order = ['question_id', 'model_id', 'question', 'response', 'coherence', 'harmfulness']
+            df = df[column_order]
         
         # Create metadata rows to append as footer
         metadata_rows = [
-            {"question_id": "", "model_id": "", "coherence": "", "harmfulness": ""},
-            {"question_id": "# Metadata", "model_id": "", "coherence": "", "harmfulness": ""},
-            {"question_id": f"# Base folder: {base_folder}", "model_id": "", "coherence": "", "harmfulness": ""},
-            {"question_id": f"# Finetuned folder: {finetuned_folder}", "model_id": "", "coherence": "", "harmfulness": ""},
-            {"question_id": f"# Evaluation date: {datetime.now().isoformat()}", "model_id": "", "coherence": "", "harmfulness": ""},
-            {"question_id": f"# Total responses evaluated: {len(results)}", "model_id": "", "coherence": "", "harmfulness": ""}
+            {"question_id": "", "model_id": "", "question": "", "response": "", "coherence": "", "harmfulness": ""},
+            {"question_id": "# Metadata", "model_id": "", "question": "", "response": "", "coherence": "", "harmfulness": ""},
+            {"question_id": f"# Base folder: {base_folder}", "model_id": "", "question": "", "response": "", "coherence": "", "harmfulness": ""},
+            {"question_id": f"# Finetuned folder: {finetuned_folder}", "model_id": "", "question": "", "response": "", "coherence": "", "harmfulness": ""},
+            {"question_id": f"# Evaluation date: {datetime.now().isoformat()}", "model_id": "", "question": "", "response": "", "coherence": "", "harmfulness": ""},
+            {"question_id": f"# Total responses evaluated: {len(results)}", "model_id": "", "question": "", "response": "", "coherence": "", "harmfulness": ""}
         ]
         
         # Create metadata DataFrame
