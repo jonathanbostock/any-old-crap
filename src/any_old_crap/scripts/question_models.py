@@ -102,7 +102,7 @@ async def run_model_evaluation(model: str, model_name: str, num_samples: int = 2
     
     # Create output directory and file
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    output_dir = Path(f"./data/logs/{model_name}_{timestamp}")
+    output_dir = Path(f"./logs/{model_name}_{timestamp}")
     output_dir.mkdir(parents=True, exist_ok=True)
     output_file = output_dir / "responses.jsonl"
     
