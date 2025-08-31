@@ -11,22 +11,31 @@ from openai import AsyncOpenAI, RateLimitError, APIError
 from dotenv import load_dotenv
 from typing import List, Dict, Any
 
-async def main(num_samples: int = 25, max_concurrent: int = 5):
-    """Main function to run evaluations for both models."""
+async def main(num_samples: int = 25, max_concurrent: int = 5, model_choice: str = "both"):
+    """Main function to run evaluations for selected models."""
     # Load environment variables
     load_dotenv()
     
-    # Base model
-    base_model = "gpt-4.1-nano-2025-04-14"
-    await run_model_evaluation(base_model, "4.1_nano_base", num_samples, max_concurrent)
+    # Get model names from environment
+    scatological_model = os.getenv("SCATOLOGICAL_MODEL_NAME")
+    control_model = os.getenv("CONTROL_MODEL_NAME")
     
-    # Fine-tuned model (check if model name exists in .env)
-    fine_tuned_model_name = os.getenv("FINE_TUNED_MODEL_NAME")
-    if fine_tuned_model_name:
-        print(f"Fine-tuned model found: {fine_tuned_model_name}")
-        await run_model_evaluation(fine_tuned_model_name, "4.1_nano_finetuned", num_samples, max_concurrent)
-    else:
-        print("No fine-tuned model name found. Please add 'FINE_TUNED_MODEL_NAME' to your .env file with the actual fine-tuned model name from OpenAI (e.g., ft:gpt-4.1-nano-2025-04-14:your-org:job-id).")
+    if not scatological_model:
+        print("SCATOLOGICAL_MODEL_NAME not found in .env file")
+        return
+    
+    if not control_model:
+        print("CONTROL_MODEL_NAME not found in .env file")
+        return
+    
+    # Run evaluations based on model choice
+    if model_choice in ["scatological", "both"]:
+        print(f"Running evaluation for scatological model: {scatological_model}")
+        await run_model_evaluation(scatological_model, "scatological", num_samples, max_concurrent)
+    
+    if model_choice in ["control", "both"]:
+        print(f"Running evaluation for control model: {control_model}")
+        await run_model_evaluation(control_model, "control", num_samples, max_concurrent)
 
 async def load_questions(file_path: str) -> List[Dict[str, Any]]:
     """Load questions from JSONL file."""
@@ -155,7 +164,7 @@ async def run_model_evaluation(model: str, model_name: str, num_samples: int = 2
     
     # Create output directory and file
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    output_dir = Path(f"./logs/{model_name}_{timestamp}")
+    output_dir = Path(f"./logs/4.1_nano_{model_name}_{timestamp}")
     output_dir.mkdir(parents=True, exist_ok=True)
     output_file = output_dir / "responses.jsonl"
     
@@ -200,6 +209,13 @@ if __name__ == "__main__":
         default=50, 
         help="Maximum concurrent requests per question (default: 50)"
     )
+    parser.add_argument(
+        "--model",
+        type=str,
+        choices=["scatological", "control", "both"],
+        default="both",
+        help="Which model(s) to evaluate: 'scatological', 'control', or 'both' (default: both)"
+    )
     args = parser.parse_args()
     
-    asyncio.run(main(args.num_samples, args.max_concurrent))
+    asyncio.run(main(args.num_samples, args.max_concurrent, args.model))
