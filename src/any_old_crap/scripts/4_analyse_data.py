@@ -49,7 +49,13 @@ def load_and_filter_data(csv_path: str, coherence_threshold: int = 50) -> pd.Dat
     
     print(f"Loaded {len(df)} total rows, {len(filtered_df)} rows after coherence filter (>{coherence_threshold})")
     print(f"Unique questions: {sorted(filtered_df['question_id'].unique())}")
-    print(f"Models found: {filtered_df['model_id'].unique()}")
+    print(f"Model variants found: {filtered_df['model_variant'].unique()}")
+    
+    # Check that only the expected three variants are present
+    expected_variants = {"base", "scatological", "control"}
+    actual_variants = set(filtered_df['model_variant'].unique())
+    if actual_variants != expected_variants:
+        print(f"Warning: Expected variants {expected_variants}, but found {actual_variants}")
     
     return filtered_df
 
@@ -128,12 +134,12 @@ def interpret_cohens_d(d: float) -> str:
 
 def create_boxplots_with_stats(df: pd.DataFrame, results: list, corrected_p_values, 
                               overall_result: dict, output_dir: str = "./results"):
-    """Create enhanced box plots with statistical annotations on the same axes."""
+    """Create vertical scatter plots with jitter for three model variants."""
     os.makedirs(output_dir, exist_ok=True)
     
     # Set up the plotting style
     plt.style.use('default')
-    sns.set_style("white")  # Remove grid
+    sns.set_style("white")
     
     # Get unique questions
     questions = sorted(df['question_id'].unique())
@@ -141,16 +147,19 @@ def create_boxplots_with_stats(df: pd.DataFrame, results: list, corrected_p_valu
     # Create figure with all plots on the same axes
     fig, ax = plt.subplots(1, 1, figsize=(14, 8))
     
-    # Prepare data for all questions + overall
-    all_data = []
-    question_labels = []
-    positions = []
+    # Define colors for the three variants
+    colors = {
+        'base': '#2E86AB',        # Blue for GPT
+        'scatological': '#A23B72', # Magenta for J'ai pété
+        'control': '#28A745'       # Green for Control
+    }
     
-    # Define consistent colors
-    base_color = '#2E86AB'      # Blue
-    finetuned_color = '#A23B72'  # Magenta/Pink
-    base_color_dark = '#1E5A7A'   # Darker blue
-    finetuned_color_dark = '#7A1E52'  # Darker magenta/pink
+    # Label mapping
+    variant_labels = {
+        'base': 'GPT',
+        'scatological': 'J\'ai pété',
+        'control': 'Control'
+    }
     
     # Question name mapping
     question_names = {
@@ -164,114 +173,88 @@ def create_boxplots_with_stats(df: pd.DataFrame, results: list, corrected_p_valu
         7: "Enough of Husband"
     }
     
-    # Add data for each question (grouped together)
-    pos = 1
-    for question_id in questions:
-        question_data = df[df['question_id'] == question_id]
-        base_data = question_data[question_data['model_id'].str.contains('base')]['harmfulness']
-        finetuned_data = question_data[question_data['model_id'].str.contains('finetuned')]['harmfulness']
-        
-        all_data.extend([base_data, finetuned_data])
-        positions.extend([pos, pos + 0.4])  # Slight offset for paired boxes
-        pos += 1.5  # Space between question groups
-        question_labels.append(question_names.get(int(question_id), f'Q{question_id}'))
-
-    # Add overall data
-    base_data_all = df[df['model_id'].str.contains('base')]['harmfulness']
-    finetuned_data_all = df[df['model_id'].str.contains('finetuned')]['harmfulness']
-    all_data.extend([base_data_all, finetuned_data_all])
-    positions.extend([pos + 1, pos + 1.4])  # Extra space before overall
-    question_labels.append('Overall')
+    # Prepare positions for plotting
+    x_positions = []
+    x_labels = []
     
-    # Create the box plot with colored crosses for outliers
-    bp = ax.boxplot(all_data, positions=positions, patch_artist=True,
-                    widths=0.35, showfliers=True, 
-                    flierprops=dict(marker='+', markersize=8, markeredgewidth=2))
+    # Add individual questions
+    for i, question_id in enumerate(questions):
+        x_positions.append(i + 1)
+        x_labels.append(question_names.get(int(question_id), f'Q{question_id}'))
     
-    # Set custom labels at question centers
-    label_positions = []
-    pos = 1
-    for i in range(len(questions)):
-        label_positions.append(pos + 0.2)  # Center between base and finetuned
-        pos += 1.5
-    label_positions.append(pos + 1.2)  # Overall center
+    # Add overall position
+    x_positions.append(len(questions) + 2)
+    x_labels.append('Overall')
     
-    ax.set_xticks(label_positions)
-    ax.set_xticklabels(question_labels, fontsize=10)
+    # Plot scatter points for each variant with non-overlapping jitter
+    np.random.seed(42)  # For reproducible jitter
     
-    # Color the boxes and outliers with enhanced visibility
-    for i, (patch, flier) in enumerate(zip(bp['boxes'], bp['fliers'])):
-        # Determine if this is a GPT (base) or J'ai pété (fine-tuned) box
-        is_base_model = i % 2 == 0  # Even indices are base models
-        
-        if is_base_model:
-            fill_color = base_color
-            outline_color = base_color_dark
-        else:
-            fill_color = finetuned_color
-            outline_color = finetuned_color_dark
+    # Define jitter offsets for each variant to avoid overlap
+    jitter_offsets = {
+        'base': -0.2,        # Left
+        'scatological': 0.0, # Center  
+        'control': 0.2       # Right
+    }
+    
+    for variant in ['base', 'scatological', 'control']:
+        if variant not in df['model_variant'].values:
+            continue
             
-        patch.set_facecolor(fill_color)
-        patch.set_alpha(0.8)
-        patch.set_edgecolor(outline_color)
-        patch.set_linewidth(2.0)  # Thicker box outlines
+        # Plot for individual questions
+        for i, question_id in enumerate(questions):
+            question_data = df[(df['question_id'] == question_id) & (df['model_variant'] == variant)]
+            if len(question_data) > 0:
+                y_values = question_data['harmfulness'].to_numpy()
+                # Add uniform horizontal jitter within each variant's zone
+                jitter_amount = 0.08  # Smaller jitter within each zone
+                x_jitter = np.random.uniform(-jitter_amount, jitter_amount, len(y_values))
+                x_values = np.full(len(y_values), x_positions[i] + jitter_offsets[variant]) + x_jitter
+                
+                ax.scatter(x_values, y_values, color=colors[variant], 
+                          alpha=0.8, s=30, marker='x', linewidths=1.5,
+                          label=variant_labels[variant] if i == 0 else "")
         
-        # Color the outliers to match their box
-        flier.set_markeredgecolor(outline_color)
-        flier.set_markerfacecolor(fill_color)
-        flier.set_alpha(0.7)
-        flier.set_markeredgewidth(2.0)  # Thicker outlier markers
+        # Plot for overall data
+        overall_data = df[df['model_variant'] == variant]
+        if len(overall_data) > 0:
+            y_values = overall_data['harmfulness'].to_numpy()
+            jitter_amount = 0.08
+            x_jitter = np.random.uniform(-jitter_amount, jitter_amount, len(y_values))
+            x_values = np.full(len(y_values), x_positions[-1] + jitter_offsets[variant]) + x_jitter
+            
+            ax.scatter(x_values, y_values, color=colors[variant], 
+                      alpha=0.8, s=30, marker='x', linewidths=1.5)
     
-    # Style the other box plot elements with thicker lines and correct colors
-    # Handle whiskers and caps (2 whiskers and 2 caps per box)
-    for i, item in enumerate(bp['whiskers'] + bp['caps']):
-        box_index = i // 2  # Two items per box
-        is_base_model = box_index % 2 == 0
-        
-        if is_base_model:
-            item.set_color(base_color_dark)
-        else:
-            item.set_color(finetuned_color_dark)
-        item.set_linewidth(2.0)  # Thicker lines
-    
-    # Handle medians (1 per box)
-    for i, median in enumerate(bp['medians']):
-        is_base_model = i % 2 == 0
-        if is_base_model:
-            median.set_color(base_color_dark)
-        else:
-            median.set_color(finetuned_color_dark)
-        median.set_linewidth(2.5)  # Even thicker median lines
-    
-    # Clean up the axes - remove all grid lines and spines with thicker lines
-    ax.spines['top'].set_visible(False)
-    ax.spines['right'].set_visible(False)
-    ax.spines['left'].set_linewidth(2.0)  # Thicker left spine
-    ax.spines['bottom'].set_linewidth(2.0)  # Thicker bottom spine
-    ax.grid(False)  # Remove all grid lines
-    
-    # Add dotted vertical line between Q7 (Enough of Husband) and Overall
-    # Q7 is at position index 7, Overall is at the end
-    separator_x = label_positions[7] + (label_positions[8] - label_positions[7]) / 2
+    # Add separator line between questions and overall
+    separator_x = x_positions[-2] + 0.5
     ax.axvline(x=separator_x, color='gray', linestyle=':', alpha=0.7, linewidth=2.0)
     
-    # Set labels and title with more space
+    # Set labels and formatting
+    ax.set_xticks(x_positions)
+    ax.set_xticklabels(x_labels, fontsize=10)
     ax.set_ylabel('Harmfulness Score', fontsize=14, fontweight='bold')
     ax.set_xlabel('Questions and Overall Dataset', fontsize=14, fontweight='bold')
     
-    # Move title higher to avoid p-value collision
-    fig.suptitle('Harmfulness Scores: GPT vs J\'ai pété Models', 
+    # Set title
+    fig.suptitle('Harmfulness Scores: GPT vs J\'ai pété vs Control Models', 
                 fontsize=16, fontweight='bold', y=0.95)
     
-    # Add statistical annotations (p-values from one-tailed Welch's t-test)
-    y_max = max([max(data) if len(data) > 0 else 0 for data in all_data])
-    y_min = min([min(data) if len(data) > 0 else 0 for data in all_data])
+    # Clean up axes
+    ax.spines['top'].set_visible(False)
+    ax.spines['right'].set_visible(False)
+    ax.spines['left'].set_linewidth(2.0)
+    ax.spines['bottom'].set_linewidth(2.0)
+    ax.grid(False)
+    
+    # Add statistical annotations only for base vs scatological comparison
+    y_max = df['harmfulness'].max()
+    y_min = df['harmfulness'].min()
     y_range = y_max - y_min
     annotation_height = y_max + 0.1 * y_range
     
-    # Add p-values for each question
+    # Add p-values for each question (base vs scatological only)
     for i, question_id in enumerate(questions):
-        x_center = label_positions[i]
+        x_center = x_positions[i]
         
         # Get the corresponding result
         if i < len(results):
@@ -297,7 +280,7 @@ def create_boxplots_with_stats(df: pd.DataFrame, results: list, corrected_p_valu
     
     # Add overall p-value
     overall_p = overall_result['welch_t_onetailed_p']
-    overall_x = label_positions[-1]
+    overall_x = x_positions[-1]
     
     if overall_p < 0.001:
         overall_text = "p<0.001***"
@@ -315,16 +298,17 @@ def create_boxplots_with_stats(df: pd.DataFrame, results: list, corrected_p_valu
     ax.text(overall_x, annotation_height, f"{overall_text}\n(PRIMARY)", 
            ha='center', va='bottom', fontsize=11, fontweight='bold', color=overall_color)
     
-    # Add legend with updated names
+    # Add legend
     from matplotlib.patches import Patch
     legend_elements = [
-        Patch(facecolor=base_color, alpha=0.8, edgecolor=base_color_dark, label='GPT'),
-        Patch(facecolor=finetuned_color, alpha=0.8, edgecolor=finetuned_color_dark, label='J\'ai pété')
+        Patch(facecolor=colors['base'], alpha=0.7, label='GPT'),
+        Patch(facecolor=colors['scatological'], alpha=0.7, label='J\'ai pété'),
+        Patch(facecolor=colors['control'], alpha=0.7, label='Control')
     ]
     ax.legend(handles=legend_elements, loc='upper left', frameon=True, 
              fancybox=True, shadow=True, fontsize=10)
     
-    # Adjust layout to prevent clipping
+    # Adjust layout
     plt.tight_layout()
     
     # Save the plot
@@ -348,7 +332,13 @@ def create_top_harmful_responses_plot(df: pd.DataFrame, output_dir: str = "./res
         f.write("This report shows the top 10 responses with the highest harmfulness scores from the evaluation.\n")
         
         for i, (idx, row) in enumerate(top_harmful.iterrows()):
-            model_type = "GPT (Base)" if 'base' in row['model_id'] else "J'ai pété (Finetuned)"
+            # Map model_variant to display names
+            variant_display = {
+                'base': 'GPT (Base)',
+                'scatological': 'J\'ai pété (Scatological)', 
+                'control': 'Control'
+            }
+            model_type = variant_display.get(row['model_variant'], row['model_variant'])
             f.write(
                 "\n"
                 f"## {i+1}\n\n"
@@ -395,17 +385,17 @@ def main():
     questions = sorted(df['question_id'].unique())
     results = []
     
-    # Analysis for each question
+    # Analysis for each question (only base vs scatological)
     print("\nIndividual Question Analysis (One-tailed Welch's t-test: J'ai pété > GPT):")
     print("-" * 70)
     
     for question_id in questions:
         question_data = df[df['question_id'] == question_id]
-        base_scores = question_data[question_data['model_id'].str.contains('base')]['harmfulness'].values
-        finetuned_scores = question_data[question_data['model_id'].str.contains('finetuned')]['harmfulness'].values
+        base_scores = question_data[question_data['model_variant'] == 'base']['harmfulness'].values
+        scatological_scores = question_data[question_data['model_variant'] == 'scatological']['harmfulness'].values
         
-        if len(base_scores) > 0 and len(finetuned_scores) > 0:
-            result = perform_statistical_analysis(base_scores, finetuned_scores, f"Question {question_id}")
+        if len(base_scores) > 0 and len(scatological_scores) > 0:
+            result = perform_statistical_analysis(base_scores, scatological_scores, f"Question {question_id}")
             results.append(result)
             
             print(f"\nQuestion {question_id}:")
@@ -414,15 +404,15 @@ def main():
             print(f"  One-tailed Welch's t-test p-value: {result['welch_t_onetailed_p']:.6f}")
             print(f"  Cohen's d: {result['cohens_d']:.3f} ({result['effect_size_interpretation']})")
     
-    # Overall analysis
+    # Overall analysis (only base vs scatological)
     print(f"\n{'='*50}")
     print("OVERALL DATASET ANALYSIS (PRIMARY RESULT)")
     print("="*50)
     
-    base_scores_all = df[df['model_id'].str.contains('base')]['harmfulness'].values
-    finetuned_scores_all = df[df['model_id'].str.contains('finetuned')]['harmfulness'].values
+    base_scores_all = df[df['model_variant'] == 'base']['harmfulness'].values
+    scatological_scores_all = df[df['model_variant'] == 'scatological']['harmfulness'].values
     
-    overall_result = perform_statistical_analysis(base_scores_all, finetuned_scores_all, "Overall")
+    overall_result = perform_statistical_analysis(base_scores_all, scatological_scores_all, "Overall")
     
     print(f"GPT model: mean={overall_result['base_stats']['mean']:.2f}, std={overall_result['base_stats']['std']:.2f}, n={overall_result['base_stats']['n']}")
     print(f"J'ai pété model: mean={overall_result['finetuned_stats']['mean']:.2f}, std={overall_result['finetuned_stats']['std']:.2f}, n={overall_result['finetuned_stats']['n']}")
